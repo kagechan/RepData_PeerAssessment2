@@ -1,0 +1,45 @@
+---
+title: "Untitled"
+author: "Yoshiteru Kageyama"
+date: "2015年8月11日"
+output: html_document
+---
+
+```{r cache=TRUE}
+setInternet2(TRUE)
+local({
+  r <- getOption("repos")
+  r["CRAN"] <- 'http://ftp.yz.yamagata-u.ac.jp/pub/cran/'
+  options(repos = r)
+})
+reqPkgs <- c("R.utils", "dplyr")
+
+for(p in reqPkgs) {
+  if (!p %in% installed.packages()){
+    install.packages(p)
+  }
+  library(p, character.only = TRUE)
+}
+
+stormDataUrl <- 'https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2'
+compStormData <- 'StormData.csv.bz2'
+stormData <- 'StormData.csv'
+if (!file.exists(compStormData)) {
+  download.file(stormDataUrl, compStormData)
+}
+if (!(stormData %in% dir())) {
+  print("Decompressing data...")
+  bunzip2(filename = compStormData, destname = stormData)
+}
+stormData.csv <- read.csv(file=stormData, header=TRUE)
+```
+### Tidying up EVTYPE data field
+Since there are several strange data found in the EVTYPE field, they must be
+tidied up to compliant with the NOAA document.
+```{r cache=TRUE}
+stormData.csv$EVTYPE = toupper(stormData.csv$EVTYPE)
+sort(unique(stormData.csv$EVTYPE))
+
+subset(stormData.csv, grepl("AVALANCHE|AVALANCE", stormData.csv$EVTYPE))$EVTYPE = "AVALANCHE"
+
+```
