@@ -1,18 +1,39 @@
 ---
-title: "Untitled"
+title: "How did storms affect the health and economy in U.S.?"
 author: "Yoshiteru Kageyama"
-date: "2015年8月11日"
+date: "August 21, 2015"
 output: html_document
 ---
+## Synopsis
+This analysis describes how storms and other severe weather events
+have caused both public health and economic problems in the U.S.
+communities. I got the storm data from the U.S. National Oceanic
+and Atmospheric Administration's(NOAA) storm database. I also tried
+tidying them up, as they contained ambiguous and incorrect data in
+the several data fields. 
+In this analysis, **tornado**  is the most harmful weather event
+to people in the U.S.. Tornado is much more harmful than any other
+weather event in the U.S. so far. **Flood**, on the other hand, 
+affects its crop and properties.
 
-```{r cache=TRUE}
+## Data Processing
+
+The data for this assignment come in the form of a CSV file which was
+compressed with bzip2. I downloaded it via the RStudio environment 
+and uncompressed it. I also prepared for several R packages that were
+useful for the data processing and visualization.
+
+```{r}
+# Set several Internet options
 setInternet2(TRUE)
 local({
   r <- getOption("repos")
   r["CRAN"] <- 'http://ftp.yz.yamagata-u.ac.jp/pub/cran/'
   options(repos = r)
 })
-reqPkgs <- c("R.utils", "dplyr")
+
+# Download the necessary R packages, if they don't exist in the system.
+reqPkgs <- c("ggplot2", "dplyr", "tidyr")
 
 for(p in reqPkgs) {
   if (!p %in% installed.packages()){
@@ -20,26 +41,190 @@ for(p in reqPkgs) {
   }
   library(p, character.only = TRUE)
 }
+```
 
+```{r cache=TRUE}
+# Download the storm event data.
 stormDataUrl <- 'https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2'
 compStormData <- 'StormData.csv.bz2'
 stormData <- 'StormData.csv'
 if (!file.exists(compStormData)) {
   download.file(stormDataUrl, compStormData)
 }
+
+# Uncompress them, if the data haven't been uncompressed yet.
 if (!(stormData %in% dir())) {
-  print("Decompressing data...")
+  print("Uncompressing data...")
   bunzip2(filename = compStormData, destname = stormData)
 }
+# Read the uncompressed csv data into data frame.
 stormData.csv <- read.csv(file=stormData, header=TRUE)
 ```
-### Tidying up EVTYPE data field
-Since there are several strange data found in the EVTYPE field, they must be
-tidied up to compliant with the NOAA document.
-```{r cache=TRUE}
-stormData.csv$EVTYPE = toupper(stormData.csv$EVTYPE)
-sort(unique(stormData.csv$EVTYPE))
 
-subset(stormData.csv, grepl("AVALANCHE|AVALANCE", stormData.csv$EVTYPE))$EVTYPE = "AVALANCHE"
+### Tidying up EVTYPE data field
+Since there are several strange data found in the EVTYPE field, they must be tidied up to compliant with the NOAA document.  
+My strategy of cleaning the data is as follows:
+
+* Try to correct obviously misspelled EVTYPEs (e.g., THUNDER'E'STORM...)
+* Try to regard several abbreviations as original description of EVTYPE.
+ (e.g., TSTM => Thunderstorm...)
+* Other strange data can be ignored in this data analysis (i.e., they can remain as is).
+
+```{r cache=TRUE}
+
+# Try to correct obviously misspelled EVTYPEs and abbreviations.
+stormData.csv$EVTYPE = toupper(stormData.csv$EVTYPE)
+
+# list of substitution rule.
+subs <- list(c("^ *ASTRONOMICAL LOW TIDE *$", "ASTRONOMICAL LOW TIDE"),
+             c("^ *(AVALANCHE|AVALANCE) *$", "AVALANCHE"),
+             c("^ *(BLIZZARD (SUMMARY|WEATHER)?|BLIZZARD AND .*|BLIZZARD/.*) *$", "BLIZZARD"),
+             c("^ *(COASTAL|CSTL) ?FLOOD(ING)?(/EROSION)? *$", "COASTAL FLOOD"),
+             c("^ *(COLD/WIND CHILL (TEMPERATURE(S)?)?|COLD/WINDS) *$", "COLD/WIND CHILL"),
+             c("^ *DENSE FOG *$", "DENSE FOG"),
+             c("^ *DENSE SMOKE *$", "DENSE SMOKE"),
+             c("^ *DROUGHT(/EXCESSIVE HEAT)? *$", "DROUGHT"),
+             c("^ *DUST (DEVEL|DEVIL|DEVIL WATERSPOUT) *$", "DUST DEVIL"),
+             c("^ *DUST ?STORM(/HIGH WINDS)? *$", "DUST STORM"),
+             c("^ *EXCESSIVE HEAT(/DROUGHT)? *$", "EXCESSIVE HEAT"),
+             c("^ *EXTREME (COLD)?/?(WIND\ ?CHILL(S)?)?( TEMPERATURES|/BLOWING SNO)? *$", "EXTREME COLD/WIND CHILL"),
+             c("^ *(FLOOD(S|ING)?|FLOODING/HEAVY RAIN|FLOOD & HEAVY RAIN|FLOOD[ /]FLASH[ /]?FLOOD(ING)?|FLOOD/FLASH|FLOOD/RAIN/WIND(S)?|FLOOD/RIVER FLOOD|FLOOD/STRONG WIND) *$", "FLOOD"),
+             c("^ *FREEZING FOG *$", "FREEZING FOG"),
+             c("^ *(FROST|FROST/FREEZE|FROST\\\\\\FREEZE) *$", "FROST/FREEZE"),
+             c("^ *(FUNNEL(S)?|FUNNEL CLOUD[.S]?|FUNNEL CLOUD/HAIL) *$", "FUNNEL CLOUD"),
+             c("^ *(HAIL|HAIL[ \\(]?[0-9.]+\\)?|HAIL (ALOFT|DAMAGE|STORM|FLOODING|FORCE WINDS)|HAIL/ICY ROADS|HAIL/WIND(S)?|HAILSTORM(S)?|HAIL\\)) *$", "HAIL"),
+             c("^ *(HEAT|HEAT (DROUGHT|WAVE(S| DROUGHT)?)|HEAT/DROUGHT|HEATBURST) *$", "HEAT"),
+             c("^ *((HVY|HEAVY) RAIN(S)?(/|;|AND )?(.*)?|HEAVY RAIN EFFECTS|HEAVY RAINFALL) *$", "HEAVY RAIN"),
+             c("^ *HEAVY( WET| LAKE)? SNOW(( ?(AND|/|&|-)| +)[A-Z /&]*)? *$", "HEAVY SNOW"),
+             c("^ *HIGH SURF( ADVISOR(Y|IES))? *$", "HIGH SURF"),
+             c("^ *HIGH WIND(S)?( +([0-9]+|\\([A-Z0-9]+\\)|AND.*)|/.*)", "HIGH WIND"),
+             c("^ *HURRICANE(( [A-Z]+(/[A-Z ]+))|(-[A-Z ]+)|/TYPHOON( +[A-Z]+)?)?", "HURRICANE/TYPHOON"),
+             c("^ *(ICE ?STORM((/[A-Z ]+)|( AND SNOW))?|ICE/[A-Z ]+) *$","ICE STORM"),
+             c("^ *LAKE(SHORE)? FLOOD *$","LAKESHORE FLOOD"),
+             c("^ *LAKE-?EFFECT SNOW *$","LAKE-EFFECT SNOW"),
+             c("^ *(LIGHTING|LIGHTNING|LIGNTNING)([A-Z ./]+)?", "LIGHTNING"),
+             c("^ *MARINE HAIL *$", "MARINE HAIL"),
+             c("^ *MARINE HIGH WIND *$", "MARINE HIGH WIND"),
+             c("^ *MARINE STRONG WIND *$", "MARINE STRONG WIND"),
+             c("^ *MARINE (THUNDERSTORM|TSTM) WIND *$", "MARINE THUNDERSTORM WIND"),
+             c("^ *RIP CURRENT(S([ /]HEAVY SURF)?)? *$", "RIP CURRENT"),
+             c("^ *SEICHE *$", "SEICHE"),
+             c("^ *(SLEET(/[A-Z /]+)?|SLEET (& )?[A-Z ]+) *$", "SLEET"),
+             c("^ *STORM SURGE(/TIDE)? *$", "STORM SURGE/TIDE"),
+             c("^ *STRONG WIND(S)?( GUST)? *$", "STRONG WIND"),
+             c("^ *(THUNDERESTORM|THUNDERSTORM|THUNDERSTROM|THUNDERTORM|THUNDERSORM)(S)?(\\ +(WIND|W IND)(S)?([/ ]+[A-Z ]+)?)? *$", "THUNDERSTORM WINDS"),
+             c("^ *(THUNERSTORM|THUNDERSTORM|THUNDESTORM|THUNDERTSORM)\\ *WIND(S)?\\ *(\\.|\\(?G[0-9]+\\)?|[0-9]+( ?MPH(\\.)?)?)? *$", "THUNDERSTORM WINDS"),
+             c("^ *THUNDERSTORM(W)?(\\ ([0-9]+|WIND(S|SS)?|WINS))?", "THUNDERSTORM WINDS"),
+             c("^ *THUNDERSTORM WINDS[A-Z ]+ *$", "THUNDERSTORM WINDS"),
+             c("^ *TSTM\\ WIND\\ +\\(?G?[0-9]+\\)? *$", "THUNDERSTORM WINDS"),
+             c("^ *TSTM (WIND(S)?|WND)(/[A-Z]+| [A-Z ]+)? *$", "THUNDERSTORM WINDS"),
+             c("^ *TSTM(W) *$", "THUNDERSTORM WINDS"),
+             c("^ *(TORNADO(S|ES)?|TORNAO|TORNDAO) *$", "TORNADO"),
+             c("^ *TORNADO(\\ [A-Z0-9]+|/[A-Z]+|ES,[A-Z, ]+) *$", "TORNADO"),
+             c("^ *TROPICAL DEPRESSION *$", "TROPICAL DEPRESSION"),
+             c("^ *TROPICAL STORM(\\ +[A-Z]+)? *$", "TROPICAL STORM"),
+             c("^ *TSUNAMI *$", "TSUNAMI"),
+             c("^ *VOLCANIC ASH(\\ ?[A-Z]+)? *$", "VOLCANIC ASH"),
+             c("^ *(WATER|WAYTER) ?SPOUT(S)?((-[A-Z]*)?|/[A-Z ]*|\\ [A-Z ]+)? *$","WATERSPOUT"),
+             c("^ *(WILD\\ ?FIRE(S)|WILD/FOREST FIRE(S)?) *$", "WILDFIRE"),
+             c("^ *WINTER STORM(S)?([/ ]?[A-Z ]+)? *$","WINTER STORM"),
+             c("^ *WINTER WEATHER([/ ]MIX)? *$","WINTER WEATHER")
+             )
+
+# Substitute matched data in EVTYPE data field
+for (s in subs) {
+    stormData.csv$EVTYPE = gsub(pattern = s[[1]], 
+                                replacement = s[[2]],
+                                x = stormData.csv$EVTYPE)
+}
+```
+
+### Calculate PROPDMG and CROPDMG data fields according to CROPDMGEXP/PROPDMGEXP.
+Since there are CROPDMGEXP and PROPDMGEXP data fields in the storm data.
+We must calculate PROPDMG and CROPDMG data according to PROPDMGEXP and CROPDMGEXP
+data.
+```{r cache=TRUE}
+library(dplyr)
+
+# Tidying up the other data fields.
+stormData.csv <- stormData.csv %>%
+    mutate(INJURIES   = as.numeric(INJURIES),
+           FATALITIES = as.numeric(FATALITIES),
+           CROPDMG    = as.numeric(CROPDMG),
+           PROPDMG    = as.numeric(PROPDMG),
+           CROPDMG = 
+               ifelse(CROPDMGEXP == "K" | CROPDMGEXP == "k", CROPDMG * 1000,
+                      ifelse(CROPDMGEXP == "M" | CROPDMGEXP == "m", CROPDMG * 1000000,
+                             ifelse(CROPDMGEXP == "B" | CROPDMGEXP == "b", CROPDMG * 1000000000, 
+                                    CROPDMG))),
+           PROPDMG =                
+               ifelse(PROPDMGEXP == "K" | PROPDMGEXP == "k", PROPDMG * 1000,
+                      ifelse(PROPDMGEXP == "M" | PROPDMGEXP == "m", PROPDMG * 1000000,
+                             ifelse(PROPDMGEXP == "B" | PROPDMGEXP == "b", PROPDMG * 1000000000, 
+                                    PROPDMG)))
+    )
+```
+
+## Results
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+```{r cache=TRUE}
+library(ggplot2)
+library(tidyr)
+
+# acquire only the data necessary to show how weather events affect human health,
+# and aggregated them for each EVTYPE.
+stormData.inj = select(stormData.csv, INJURIES, FATALITIES, EVTYPE)
+stormData.inj = aggregate(. ~ EVTYPE, stormData.inj, sum)
+stormData.inj <- mutate(stormData.inj, TOTAL_DAMAGED = INJURIES + FATALITIES) %>%
+    filter(TOTAL_DAMAGED > 1000) %>%
+    arrange(desc(TOTAL_DAMAGED)) %>%
+    gather(DAMAGE_TYPE, NUM_INJ, INJURIES:FATALITIES)
+
+head(stormData.inj, n = 10)
+
+# plot the stormData.
+gp = ggplot(stormData.inj, aes(x = reorder(EVTYPE, -TOTAL_DAMAGED),
+                               y = NUM_INJ, fill = DAMAGE_TYPE)) + 
+    geom_bar(stat = "identity") + 
+    xlab("Storm Event Type") +
+    ylab("Number of damaged people") +
+    ggtitle("Total number of damaged people by storm events") +
+    theme(axis.text.x=element_text(angle=45,hjust=1))
+plot(gp)
 
 ```
+
+In this figure, **tornado, thunderstorm winds, excessive heat, flood, and lightning**
+are the top-5 most harmful weather events to people in the U.S..
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+```{r cache=TRUE}
+# acquire only the data necessary to show how weather events affect crop and
+# properties in the U.S.
+stormData.propdmg = select(stormData.csv, PROPDMG, CROPDMG, EVTYPE)
+stormData.propdmg = aggregate(. ~ EVTYPE, stormData.propdmg, function(x) {
+    total <- sum(x)
+    return(total / 1000000000)
+})
+stormData.propdmg <- mutate(stormData.propdmg, TOTAL_DAMAGED = PROPDMG + CROPDMG) %>%
+    filter(TOTAL_DAMAGED > 10) %>%
+    arrange(desc(TOTAL_DAMAGED)) %>%
+    gather(DAMAGE_TYPE, AMT_DMG, PROPDMG:CROPDMG)
+
+head(stormData.propdmg, n = 10)
+
+# plot the storm data.
+gp = ggplot(stormData.propdmg, aes(x = reorder(EVTYPE, -TOTAL_DAMAGED),
+                               y = AMT_DMG, fill = DAMAGE_TYPE)) + 
+    geom_bar(stat = "identity") + 
+    xlab("Storm Event Type") +
+    ylab("Total Amount of Damage (Billion dollars)") +
+    ggtitle("Total Amount of Crop/Property Damage") +
+    theme(axis.text.x=element_text(angle=45,hjust=1))
+plot(gp)
+
+```
+
+In this figure, **flood** affects the crop and properties most in the U.S.
